@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from uuid import uuid4
+from postgrest.exceptions import APIError    # used to catch duplicate-key insert errors
 import os
 from supabase import create_client, Client
 import json
@@ -208,150 +210,182 @@ async def vapi_webhook(request: Request):
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
-async def handle_collect_caller_info(call_id: str, parameters: Dict, raw_data: Dict):
-    """Handle caller information collection"""
+@app.post("/webhook/vapi")
+async def handle_collect_caller_info(request: Request):
+    """
+    Webhook endpoint that receives data from the Vapi AI assistant.
+    Handles caller information, call logging, and hot lead processing.
+    """
+
     try:
-        print(f"\n💾 Saving caller info for call: {call_id}")
-        
-        # Calculate lead score
-        score = calculate_lead_score(parameters)
-        
-        # Check if hot lead
-        urgency = parameters.get("urgency", "")
-        deal_size = parameters.get("deal_size", "")
-        is_hot, hot_reason = is_hot_lead(score, urgency, deal_size)
-        
-        print(f"📊 Lead Score: {score}/100")
-        print(f"🔥 Hot Lead: {is_hot}")
-        
-        if supabase:
-            # Prepare call data
-            call_data = {
-                "call_id": call_id,
-                "caller_name": parameters.get("caller_name"),
-                "caller_phone": parameters.get("caller_phone"),
-                "caller_email": parameters.get("caller_email"),
-                "caller_role": parameters.get("caller_role"),
-                "asset_type": parameters.get("asset_type"),
-                "location": parameters.get("location"),
-                "deal_size": parameters.get("deal_size"),
-                "urgency": parameters.get("urgency"),
-                "inquiry_summary": parameters.get("inquiry_summary"),
-                "additional_notes": parameters.get("additional_notes"),
-                "sentiment": parameters.get("sentiment"),
-                "lead_score": score,
-                "is_hot_lead": is_hot,
-                "hot_lead_reason": hot_reason,
-                "status": "new",
-                "raw_vapi_data": raw_data
-            }
+        data = await request.json()
+        print("\n📞 Incoming webhook data:", data)
 
-            # Check if THIS SPECIFIC call_id already exists (duplicate tool calls in SAME call)
-            # Modified: also check caller_phone so different callers don't overwrite each other
-            existing = (
-    supabase.table("calls")
-    .select("id")
-    .eq("call_id", call_id)
-    .execute()
-)
+        tool_name = data.get("tool", {}).get("name")
+        if tool_name != "collect_caller_info":
+            print("⚠️ Ignoring unrelated webhook tool event:", tool_name)
+            return {"success": True, "message": "Ignored non-target tool"}
 
-            if existing.data:
-            # Duplicate tool call within SAME call and SAME number - update existing record
-                print(f"⚡ Updating existing record (duplicate tool call in same conversation and same number)")
-                result = (
+        # Extract parameters and call info
+        parameters = data.get("tool", {}).get("parameters", {})
+        call_id = data.get("call", {}).get("id") or parameters.get("call_id") or "unknown"
+        is_hot = parameters.get("is_hot_lead", False)
+        hot_reason = parameters.get("urgency_reason", "Not specified")
+
+        print(f"📞 Processing call_id={call_id}, is_hot={is_hot}")
+
+        # Build base call_data dictionary
+        call_data = {
+            "call_id": call_id,
+            "caller_name": parameters.get("caller_name"),
+            "caller_phone": parameters.get("caller_phone"),
+            "caller_email": parameters.get("caller_email"),
+            "caller_role": parameters.get("caller_role"),
+            "asset_type": parameters.get("asset_type"),
+            "asset_location": parameters.get("asset_location"),
+            "deal_size": parameters.get("deal_size"),
+            "urgency_reason": hot_reason,
+            "is_hot_lead": is_hot,
+            "transcript_summary": parameters.get("summary"),
+            "conversation_duration": parameters.get("duration"),
+            "created_at": datetime.now().isoformat(),
+        }
+
+        # ✅ --- SAFER INSERT/UPDATE LOGIC STARTS HERE ---
+        from uuid import uuid4
+        from postgrest.exceptions import APIError
+
+        phone = (parameters.get("caller_phone") or "").strip()
+        inserted_call_id = None
+
+        try:
+            # Prefer real Vapi call_id if available
+            if call_id and call_id != "unknown":
+                existing = (
                     supabase.table("calls")
-                    .update(call_data)
-                    .eq("id", existing.data[0]["id"])
+                    .select("id,call_id")
+                    .eq("call_id", call_id)
                     .execute()
                 )
-                inserted_call_id = existing.data[0]["id"]
+            else:
+                # Fallback: look up by caller phone if call_id is missing or "unknown"
+                existing = (
+                    supabase.table("calls")
+                    .select("id,call_id")
+                    .eq("caller_phone", phone)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
 
-                # Delete old topics/questions for THIS call to avoid duplicates
+            if existing.data:
+                # Existing record found → update
+                existing_id = existing.data[0]["id"]
+                print(f"⚡ Updating existing record (id={existing_id})")
+                supabase.table("calls").update(call_data).eq("id", existing_id).execute()
+                inserted_call_id = existing_id
+
+                # Cleanup old topics/questions
                 supabase.table("conversation_topics").delete().eq("call_id", inserted_call_id).execute()
                 supabase.table("questions_asked").delete().eq("call_id", inserted_call_id).execute()
 
             else:
-            # NEW call - insert fresh record
-                print(f"📝 Creating NEW call record (new caller or different number)")
-                result = supabase.table("calls").insert(call_data).execute()
+                # No matching call found → insert a new one
+                if not call_id or call_id == "unknown":
+                    generated = str(uuid4())
+                    call_data["call_id"] = generated
+                    print(f"🆕 No external call_id provided — generated internal call_id: {generated}")
 
-                if not result.data:
-                    print("❌ Failed to insert call")
-                    return {"success": False, "message": "Failed to save"}
+                try:
+                    result = supabase.table("calls").insert(call_data).execute()
+                    if not result.data:
+                        print("❌ Failed to insert call")
+                        return {"success": False, "message": "Failed to save call"}
+                    inserted_call_id = result.data[0]["id"]
+                    print(f"📝 Created new call record id={inserted_call_id}")
+                except APIError as api_e:
+                    # Handle duplicate-key error gracefully
+                    print(f"⚠️ Insert returned APIError, trying to recover: {api_e}")
+                    fallback = None
+                    if call_data.get("call_id"):
+                        fallback = supabase.table("calls").select("id").eq("call_id", call_data["call_id"]).execute()
+                    if (not fallback or not fallback.data) and phone:
+                        fallback = supabase.table("calls").select("id").eq("caller_phone", phone).order("created_at", desc=True).limit(1).execute()
+                    if fallback and fallback.data:
+                        existing_id = fallback.data[0]["id"]
+                        print(f"🔁 Found existing record after APIError, updating id={existing_id}")
+                        supabase.table("calls").update(call_data).eq("id", existing_id).execute()
+                        inserted_call_id = existing_id
+                    else:
+                        raise
 
-                inserted_call_id = result.data[0]["id"]
-
-            print(f"✅ Saved with UUID: {inserted_call_id}")
-
-            
-            # Insert conversation topics
-            topics = parameters.get("conversation_topics", [])
-            if topics and isinstance(topics, list):
-                for topic in topics:
-                    try:
+            # ✅ Insert conversation topics and questions
+            if inserted_call_id:
+                topics = parameters.get("conversation_topics", [])
+                if topics and isinstance(topics, list):
+                    for topic in topics:
                         supabase.table("conversation_topics").insert({
                             "call_id": inserted_call_id,
                             "topic": topic
                         }).execute()
-                    except Exception as e:
-                        print(f"⚠️ Error saving topic: {e}")
-                print(f"📝 Saved {len(topics)} topics")
-            
-            # Insert questions asked
-            questions = parameters.get("questions_asked", [])
-            if questions and isinstance(questions, list):
-                for question in questions:
-                    try:
+                    print(f"📝 Saved {len(topics)} topics")
+
+                questions = parameters.get("questions_asked", [])
+                if questions and isinstance(questions, list):
+                    for question in questions:
                         supabase.table("questions_asked").insert({
                             "call_id": inserted_call_id,
                             "question": question
                         }).execute()
+                    print(f"❓ Saved {len(questions)} questions")
+
+                # ✅ Handle hot lead data safely
+                if is_hot:
+                    print(f"🔥 Processing hot lead (call_uuid={inserted_call_id})")
+                    try:
+                        existing_hot = supabase.table("hot_leads").select("id").eq("call_id", inserted_call_id).execute()
+                        if not existing_hot.data and phone:
+                            existing_hot = supabase.table("hot_leads").select("id").eq("caller_phone", phone).order("created_at", desc=True).limit(1).execute()
+
+                        hot_lead_data = {
+                            "call_id": inserted_call_id,
+                            "caller_name": parameters.get("caller_name"),
+                            "caller_phone": phone,
+                            "urgency_reason": hot_reason,
+                            "deal_value": parameters.get("deal_size"),
+                            "notified_at": datetime.now().isoformat()
+                        }
+
+                        if existing_hot.data:
+                            supabase.table("hot_leads").update(hot_lead_data).eq("id", existing_hot.data[0]["id"]).execute()
+                            print("✅ Hot lead updated")
+                        else:
+                            supabase.table("hot_leads").insert(hot_lead_data).execute()
+                            print("✅ Hot lead created")
+
+                        # Mark the call as hot
+                        supabase.table("calls").update({
+                            "is_hot_lead": True,
+                            "hot_lead_reason": hot_reason
+                        }).eq("id", inserted_call_id).execute()
                     except Exception as e:
-                        print(f"⚠️ Error saving question: {e}")
-                print(f"❓ Saved {len(questions)} questions")
-            
-            # If hot lead, create/update hot lead record (only for THIS call)
-            if is_hot:
-                print(f"🔥 Processing hot lead")
-                try:
-                    # Check if hot lead exists for THIS SPECIFIC call UUID
-                    existing_hot = supabase.table("hot_leads").select("id").eq("call_id", inserted_call_id).execute()
-                    
-                    hot_lead_data = {
-                        "call_id": inserted_call_id,
-                        "caller_name": parameters.get("caller_name"),
-                        "caller_phone": parameters.get("caller_phone"),
-                        "urgency_reason": hot_reason,
-                        "deal_value": parameters.get("deal_size"),
-                        "notified_at": datetime.now().isoformat()
-                    }
-                    
-                    if existing_hot.data:
-                        # Update hot lead for THIS specific call
-                        supabase.table("hot_leads").update(hot_lead_data).eq("call_id", inserted_call_id).execute()
-                        print(f"✅ Hot lead updated")
-                    else:
-                        # Insert NEW hot lead
-                        supabase.table("hot_leads").insert(hot_lead_data).execute()
-                        print(f"✅ Hot lead created")
-                except Exception as e:
-                    print(f"⚠️ Error with hot lead: {e}")
-        
-        return {
-            "success": True,
-            "message": f"Information saved successfully. Lead score: {score}/100.",
-            "lead_score": score,
-            "is_hot_lead": is_hot
-        }
-        
+                        print(f"⚠️ Error with hot lead: {e}")
+
+        except Exception as e:
+            print(f"❌ Error handling caller info (calls/hot_leads): {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": str(e)}
+
+        # ✅ Return success
+        return {"success": True, "message": "Caller info processed successfully"}
+
     except Exception as e:
-        print(f"❌ Error handling caller info: {e}")
+        print(f"❌ General webhook error: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            "success": False,
-            "message": f"Error saving information: {str(e)}"
-        }
+        return {"success": False, "message": str(e)}
+
 
 async def handle_callback_request(call_id: str, parameters: Dict):
     """Handle callback scheduling"""

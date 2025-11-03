@@ -24,11 +24,11 @@ Live Demo
 - **Analytics Endpoint:** https://web-production-4dd75.up.railway.app/analytics
 
 Tech Stack:
--> **Voice AI:** Vapi + Cartesia Sonic 3 + GPT-4o
--> **Backend:** Python, FastAPI, Uvicorn
--> **Database:** Supabase (PostgreSQL)
--> **Deployment:** Railway
--> **Frontend:** HTML/CSS/JavaScript
+-> **Voice AI:** Vapi + Cartesia Sonic 3 + GPT-4o.
+-> **Backend:** Python, FastAPI, Uvicorn.
+-> **Database:** Supabase (PostgreSQL).
+-> **Deployment:** Railway.
+-> **Frontend:** HTML/CSS/JavaScript.
 
 Features Implemented:
 -> Natural conversation with empathy and fillers  

@@ -141,69 +141,75 @@ async def vapi_webhook(request: Request):
     """Main Vapi webhook endpoint"""
     try:
         payload = await request.json()
-        
-        print(f"\n📞 Received webhook call")
-        
-        # Extract message
+        print("\n📞 Received webhook call")
+
+        # Extract core message info
         message = payload.get("message", {})
-        call = payload.get("call", {})
+        call = payload.get("call", {}) or {}
         call_id = call.get("id", "unknown")
-        
-        message_type = message.get("type")
+        message_type = message.get("type", "unknown")
+
         print(f"📋 Message type: {message_type}")
         print(f"🆔 Call ID: {call_id}")
-        
-        # Response to send back to Vapi
-        results = []
-        
-        # Handle tool-calls (NEW VAPI FORMAT)
+
+        results = []  # Responses to send back to Vapi
+
+        # ✅ Handle tool-calls (new Vapi format)
         if message_type == "tool-calls":
             tool_calls = message.get("toolCalls", [])
             print(f"🔧 Processing {len(tool_calls)} tool calls")
-            
+
             for tool_call in tool_calls:
                 tool_call_id = tool_call.get("id")
                 function_data = tool_call.get("function", {})
-                function_name = function_data.get("name")
-                
-                # Arguments might be a string or dict
+                function_name = function_data.get("name", "unknown")
+
+                # Parse arguments (string or dict)
                 arguments = function_data.get("arguments", {})
                 if isinstance(arguments, str):
                     try:
                         arguments = json.loads(arguments)
-                    except:
-                        print(f"⚠️ Could not parse arguments as JSON")
-                
+                    except Exception:
+                        print("⚠️ Could not parse arguments as JSON")
+
                 print(f"🔧 Function: {function_name}")
-                
-                # Route to appropriate handler and get result
+
+                # ✅ Route to appropriate handler
                 handler_result = None
-                if function_name == "collect_caller_information":
-                    handler_result = await handle_collect_caller_info(call_id, arguments, payload)
-                elif function_name == "schedule_callback":
-                    handler_result = await handle_callback_request(call_id, arguments)
-                elif function_name == "request_property_information":
-                    handler_result = await handle_property_request(call_id, arguments)
-                elif function_name == "flag_hot_lead":
-                    handler_result = await handle_hot_lead_flag(call_id, arguments)
-                
-                # Format response for Vapi
-                if handler_result:
-                    results.append({
-                        "toolCallId": tool_call_id,
-                        "result": json.dumps(handler_result) if isinstance(handler_result, dict) else str(handler_result)
-                    })
-        
-        # Handle end-of-call-report
+                try:
+                    if function_name == "collect_caller_information":
+                        handler_result = await handle_collect_caller_info(call_id, arguments, payload)
+                    elif function_name == "schedule_callback":
+                        handler_result = await handle_callback_request(call_id, arguments)
+                    elif function_name == "request_property_information":
+                        handler_result = await handle_property_request(call_id, arguments)
+                    elif function_name == "flag_hot_lead":
+                        handler_result = await handle_hot_lead_flag(call_id, arguments)
+                    else:
+                        print(f"⚠️ Unrecognized function: {function_name}")
+                except Exception as e:
+                    print(f"❌ Error in {function_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    handler_result = {"error": str(e)}
+
+                # ✅ Format tool call result for Vapi
+                results.append({
+                    "toolCallId": tool_call_id,
+                    "result": json.dumps(handler_result) if isinstance(handler_result, dict) else str(handler_result)
+                })
+
+        # ✅ Handle end-of-call-report
         elif message_type == "end-of-call-report":
-            print(f"📊 Call ended")
-        
-        # Return properly formatted response for Vapi
+            print("📊 Call ended — no tool calls to process")
+
+        # ✅ Send response to Vapi
         if results:
+            print("✅ Sending tool results to Vapi")
             return {"results": results}
         else:
-            return {"status": "success"}
-        
+            return {"status": "success", "message": "Processed successfully"}
+
     except Exception as e:
         print(f"❌ Webhook error: {e}")
         import traceback

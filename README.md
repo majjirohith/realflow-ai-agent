@@ -23,7 +23,7 @@ Live Demo
 - **API:** https://web-production-4dd75.up.railway.app
 - **Analytics Endpoint:** https://web-production-4dd75.up.railway.app/analytics
 
-Tech Stack
+Tech Stack:
 -> **Voice AI:** Vapi + Cartesia Sonic 3 + GPT-4o
 -> **Backend:** Python, FastAPI, Uvicorn
 -> **Database:** Supabase (PostgreSQL)
@@ -54,6 +54,4 @@ realflow-ai-agent/
 └── README.md           # This file
 ```
 
-[Your Name]
-
-Built for Realflow Pre-Interview Technical Assessment
+Author & Developer - Rohith Majji

@@ -1,0 +1,589 @@
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+import os
+from supabase import create_client, Client
+import json
+
+# Initialize FastAPI
+app = FastAPI(title="Realflow AI Agent Backend", version="1.0.0")
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except:
+    pass
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "your_webhook_secret_key")
+
+# Initialize Supabase client
+try:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    print("✅ Supabase connected successfully!")
+except Exception as e:
+    print(f"⚠️ Supabase connection warning: {e}")
+    supabase = None
+
+# Helper functions
+def calculate_lead_score(data: Dict[str, Any]) -> int:
+    """Calculate lead score (0-100) based on caller information"""
+    score = 0
+    
+    # Urgency scoring (0-30 points)
+    urgency = data.get("urgency", "")
+    urgency_scores = {
+        "immediate": 30,
+        "1-3 months": 25,
+        "3-6 months": 15,
+        "6+ months": 5,
+        "just browsing": 0
+    }
+    score += urgency_scores.get(urgency, 0)
+    
+    # Deal size scoring (0-25 points)
+    deal_size = data.get("deal_size", "")
+    if deal_size:
+        deal_lower = str(deal_size).lower()
+        if any(indicator in deal_lower for indicator in ["10m", "million", "20m", "50m"]):
+            score += 25
+        elif any(indicator in deal_lower for indicator in ["5m", "1m", "2m"]):
+            score += 20
+        elif any(indicator in deal_lower for indicator in ["500k", "750k"]):
+            score += 15
+        else:
+            score += 10
+    
+    # Role scoring (0-15 points)
+    role = data.get("caller_role", "")
+    role_scores = {
+        "buyer": 15,
+        "investor": 15,
+        "developer": 12,
+        "seller": 10,
+        "broker": 8,
+        "tenant": 5,
+        "landlord": 5
+    }
+    score += role_scores.get(role, 0)
+    
+    # Asset type scoring (0-10 points)
+    asset_type = data.get("asset_type", "")
+    premium_assets = ["multifamily", "industrial", "mixed-use", "office"]
+    if asset_type in premium_assets:
+        score += 10
+    elif asset_type:
+        score += 5
+    
+    # Sentiment scoring (0-10 points)
+    sentiment = data.get("sentiment", "neutral")
+    sentiment_scores = {
+        "very_positive": 10,
+        "positive": 8,
+        "neutral": 5,
+        "negative": 2,
+        "frustrated": 0
+    }
+    score += sentiment_scores.get(sentiment, 5)
+    
+    # Email provided (0-10 points)
+    if data.get("caller_email"):
+        score += 10
+    
+    return min(score, 100)
+
+def is_hot_lead(score: int, urgency: str, deal_size: str) -> tuple:
+    """Determine if lead is hot and why"""
+    reasons = []
+    
+    if score >= 75:
+        reasons.append(f"High lead score ({score}/100)")
+    
+    if urgency == "immediate":
+        reasons.append("Immediate timeline")
+    
+    if deal_size and any(indicator in str(deal_size).lower() for indicator in ["10m", "million", "20m", "50m"]):
+        reasons.append(f"High deal value ({deal_size})")
+    
+    is_hot = score >= 75 or urgency == "immediate" or len(reasons) >= 2
+    reason = ", ".join(reasons) if reasons else None
+    
+    return is_hot, reason
+
+# API Endpoints
+@app.get("/")
+async def root():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "Realflow AI Agent Backend",
+        "version": "1.0.0",
+        "timestamp": datetime.now().isoformat(),
+        "supabase_connected": supabase is not None
+    }
+
+@app.post("/webhook/vapi")
+async def vapi_webhook(request: Request):
+    """Main Vapi webhook endpoint"""
+    try:
+        payload = await request.json()
+        
+        print(f"\n📞 Received webhook call")
+        
+        # Extract message
+        message = payload.get("message", {})
+        call = payload.get("call", {})
+        call_id = call.get("id", "unknown")
+        
+        message_type = message.get("type")
+        print(f"📋 Message type: {message_type}")
+        print(f"🆔 Call ID: {call_id}")
+        
+        # Response to send back to Vapi
+        results = []
+        
+        # Handle tool-calls (NEW VAPI FORMAT)
+        if message_type == "tool-calls":
+            tool_calls = message.get("toolCalls", [])
+            print(f"🔧 Processing {len(tool_calls)} tool calls")
+            
+            for tool_call in tool_calls:
+                tool_call_id = tool_call.get("id")
+                function_data = tool_call.get("function", {})
+                function_name = function_data.get("name")
+                
+                # Arguments might be a string or dict
+                arguments = function_data.get("arguments", {})
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except:
+                        print(f"⚠️ Could not parse arguments as JSON")
+                
+                print(f"🔧 Function: {function_name}")
+                
+                # Route to appropriate handler and get result
+                handler_result = None
+                if function_name == "collect_caller_information":
+                    handler_result = await handle_collect_caller_info(call_id, arguments, payload)
+                elif function_name == "schedule_callback":
+                    handler_result = await handle_callback_request(call_id, arguments)
+                elif function_name == "request_property_information":
+                    handler_result = await handle_property_request(call_id, arguments)
+                elif function_name == "flag_hot_lead":
+                    handler_result = await handle_hot_lead_flag(call_id, arguments)
+                
+                # Format response for Vapi
+                if handler_result:
+                    results.append({
+                        "toolCallId": tool_call_id,
+                        "result": json.dumps(handler_result) if isinstance(handler_result, dict) else str(handler_result)
+                    })
+        
+        # Handle end-of-call-report
+        elif message_type == "end-of-call-report":
+            print(f"📊 Call ended")
+        
+        # Return properly formatted response for Vapi
+        if results:
+            return {"results": results}
+        else:
+            return {"status": "success"}
+        
+    except Exception as e:
+        print(f"❌ Webhook error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+async def handle_collect_caller_info(call_id: str, parameters: Dict, raw_data: Dict):
+    """Handle caller information collection"""
+    try:
+        print(f"\n💾 Saving caller info for call: {call_id}")
+        
+        # Calculate lead score
+        score = calculate_lead_score(parameters)
+        
+        # Check if hot lead
+        urgency = parameters.get("urgency", "")
+        deal_size = parameters.get("deal_size", "")
+        is_hot, hot_reason = is_hot_lead(score, urgency, deal_size)
+        
+        print(f"📊 Lead Score: {score}/100")
+        print(f"🔥 Hot Lead: {is_hot}")
+        
+        if supabase:
+            # Prepare call data
+            call_data = {
+                "call_id": call_id,
+                "caller_name": parameters.get("caller_name"),
+                "caller_phone": parameters.get("caller_phone"),
+                "caller_email": parameters.get("caller_email"),
+                "caller_role": parameters.get("caller_role"),
+                "asset_type": parameters.get("asset_type"),
+                "location": parameters.get("location"),
+                "deal_size": parameters.get("deal_size"),
+                "urgency": parameters.get("urgency"),
+                "inquiry_summary": parameters.get("inquiry_summary"),
+                "additional_notes": parameters.get("additional_notes"),
+                "sentiment": parameters.get("sentiment"),
+                "lead_score": score,
+                "is_hot_lead": is_hot,
+                "hot_lead_reason": hot_reason,
+                "status": "new",
+                "raw_vapi_data": raw_data
+            }
+
+            # Check if THIS SPECIFIC call_id already exists (duplicate tool calls in SAME call)
+            # Modified: also check caller_phone so different callers don't overwrite each other
+            existing = (
+    supabase.table("calls")
+    .select("id")
+    .eq("call_id", call_id)
+    .execute()
+)
+
+            if existing.data:
+            # Duplicate tool call within SAME call and SAME number - update existing record
+                print(f"⚡ Updating existing record (duplicate tool call in same conversation and same number)")
+                result = (
+                    supabase.table("calls")
+                    .update(call_data)
+                    .eq("id", existing.data[0]["id"])
+                    .execute()
+                )
+                inserted_call_id = existing.data[0]["id"]
+
+                # Delete old topics/questions for THIS call to avoid duplicates
+                supabase.table("conversation_topics").delete().eq("call_id", inserted_call_id).execute()
+                supabase.table("questions_asked").delete().eq("call_id", inserted_call_id).execute()
+
+            else:
+            # NEW call - insert fresh record
+                print(f"📝 Creating NEW call record (new caller or different number)")
+                result = supabase.table("calls").insert(call_data).execute()
+
+                if not result.data:
+                    print("❌ Failed to insert call")
+                    return {"success": False, "message": "Failed to save"}
+
+                inserted_call_id = result.data[0]["id"]
+
+            print(f"✅ Saved with UUID: {inserted_call_id}")
+
+            
+            # Insert conversation topics
+            topics = parameters.get("conversation_topics", [])
+            if topics and isinstance(topics, list):
+                for topic in topics:
+                    try:
+                        supabase.table("conversation_topics").insert({
+                            "call_id": inserted_call_id,
+                            "topic": topic
+                        }).execute()
+                    except Exception as e:
+                        print(f"⚠️ Error saving topic: {e}")
+                print(f"📝 Saved {len(topics)} topics")
+            
+            # Insert questions asked
+            questions = parameters.get("questions_asked", [])
+            if questions and isinstance(questions, list):
+                for question in questions:
+                    try:
+                        supabase.table("questions_asked").insert({
+                            "call_id": inserted_call_id,
+                            "question": question
+                        }).execute()
+                    except Exception as e:
+                        print(f"⚠️ Error saving question: {e}")
+                print(f"❓ Saved {len(questions)} questions")
+            
+            # If hot lead, create/update hot lead record (only for THIS call)
+            if is_hot:
+                print(f"🔥 Processing hot lead")
+                try:
+                    # Check if hot lead exists for THIS SPECIFIC call UUID
+                    existing_hot = supabase.table("hot_leads").select("id").eq("call_id", inserted_call_id).execute()
+                    
+                    hot_lead_data = {
+                        "call_id": inserted_call_id,
+                        "caller_name": parameters.get("caller_name"),
+                        "caller_phone": parameters.get("caller_phone"),
+                        "urgency_reason": hot_reason,
+                        "deal_value": parameters.get("deal_size"),
+                        "notified_at": datetime.now().isoformat()
+                    }
+                    
+                    if existing_hot.data:
+                        # Update hot lead for THIS specific call
+                        supabase.table("hot_leads").update(hot_lead_data).eq("call_id", inserted_call_id).execute()
+                        print(f"✅ Hot lead updated")
+                    else:
+                        # Insert NEW hot lead
+                        supabase.table("hot_leads").insert(hot_lead_data).execute()
+                        print(f"✅ Hot lead created")
+                except Exception as e:
+                    print(f"⚠️ Error with hot lead: {e}")
+        
+        return {
+            "success": True,
+            "message": f"Information saved successfully. Lead score: {score}/100.",
+            "lead_score": score,
+            "is_hot_lead": is_hot
+        }
+        
+    except Exception as e:
+        print(f"❌ Error handling caller info: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Error saving information: {str(e)}"
+        }
+
+async def handle_callback_request(call_id: str, parameters: Dict):
+    """Handle callback scheduling"""
+    try:
+        print(f"\n📅 Scheduling callback for call: {call_id}")
+        
+        if supabase:
+            # Get the UUID for this call_id
+            call_result = supabase.table("calls").select("id").eq("call_id", call_id).execute()
+            
+            if call_result.data:
+                db_call_id = call_result.data[0]["id"]
+                print(f"🆔 Found call UUID: {db_call_id}")
+                
+                callback_data = {
+                    "call_id": db_call_id,
+                    "caller_name": parameters.get("caller_name"),
+                    "callback_phone": parameters.get("callback_phone"),
+                    "preferred_date": parameters.get("preferred_date"),
+                    "preferred_time": parameters.get("preferred_time"),
+                    "timezone": parameters.get("timezone"),
+                    "reason": parameters.get("reason"),
+                    "status": "scheduled"
+                }
+                
+                # ALWAYS INSERT - each callback is a new record
+                supabase.table("callbacks").insert(callback_data).execute()
+                print(f"✅ Callback scheduled (NEW record)")
+            else:
+                print(f"⚠️ Call {call_id} not found in database")
+        
+        return {
+            "success": True,
+            "message": f"Callback scheduled for {parameters.get('preferred_date')} {parameters.get('preferred_time')}"
+        }
+        
+    except Exception as e:
+        print(f"❌ Error handling callback: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Error scheduling callback: {str(e)}"
+        }
+
+async def handle_property_request(call_id: str, parameters: Dict):
+    """Handle property information requests"""
+    try:
+        print(f"\n🏢 Property info requested for call: {call_id}")
+        
+        if supabase:
+            # Get the UUID for this call_id
+            call_result = supabase.table("calls").select("id").eq("call_id", call_id).execute()
+            
+            if call_result.data:
+                db_call_id = call_result.data[0]["id"]
+                print(f"🆔 Found call UUID: {db_call_id}")
+                
+                prop_data = {
+                    "call_id": db_call_id,
+                    "email": parameters.get("email"),
+                    "property_type": parameters.get("property_type"),
+                    "location": parameters.get("location"),
+                    "budget_range": parameters.get("budget_range"),
+                    "specific_requirements": parameters.get("specific_requirements"),
+                    "status": "pending"
+                }
+                
+                # ALWAYS INSERT - each property request is a new record
+                supabase.table("property_requests").insert(prop_data).execute()
+                print(f"✅ Property request saved (NEW record)")
+            else:
+                print(f"⚠️ Call {call_id} not found in database")
+        
+        return {
+            "success": True,
+            "message": f"Property information will be sent to {parameters.get('email')}"
+        }
+        
+    except Exception as e:
+        print(f"❌ Error handling property request: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Error processing request: {str(e)}"
+        }
+
+async def handle_hot_lead_flag(call_id: str, parameters: Dict):
+    """Handle manual hot lead flagging"""
+    try:
+        print(f"\n🔥 Manual hot lead flag for call: {call_id}")
+        
+        if supabase:
+            # Get the UUID for this call_id
+            call_result = supabase.table("calls").select("id").eq("call_id", call_id).execute()
+            
+            if call_result.data:
+                db_call_id = call_result.data[0]["id"]
+                print(f"🆔 Found call UUID: {db_call_id}")
+                
+                # Check if hot lead ALREADY exists for THIS specific call
+                existing_hot = supabase.table("hot_leads").select("id").eq("call_id", db_call_id).execute()
+                
+                hot_lead_data = {
+                    "call_id": db_call_id,
+                    "caller_name": parameters.get("caller_name"),
+                    "caller_phone": parameters.get("caller_phone"),
+                    "urgency_reason": parameters.get("urgency_reason"),
+                    "deal_value": parameters.get("deal_value"),
+                    "has_competition": parameters.get("competition", False),
+                    "notified_at": datetime.now().isoformat()
+                }
+                
+                if existing_hot.data:
+                    # Update existing hot lead for THIS call (duplicate tool call)
+                    supabase.table("hot_leads").update(hot_lead_data).eq("call_id", db_call_id).execute()
+                    print(f"✅ Hot lead updated (duplicate tool call)")
+                else:
+                    # Insert NEW hot lead
+                    supabase.table("hot_leads").insert(hot_lead_data).execute()
+                    print(f"✅ Hot lead created (NEW)")
+                
+                # Update call record to mark as hot
+                supabase.table("calls").update({
+                    "is_hot_lead": True,
+                    "hot_lead_reason": parameters.get("urgency_reason")
+                }).eq("id", db_call_id).execute()
+            else:
+                print(f"⚠️ Call {call_id} not found in database")
+        
+        return {
+            "success": True,
+            "message": "Lead flagged as urgent and will receive priority attention"
+        }
+        
+    except Exception as e:
+        print(f"❌ Error handling hot lead flag: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Error flagging lead: {str(e)}"
+        }
+
+@app.get("/analytics")
+async def get_analytics():
+    """Get analytics dashboard data"""
+    try:
+        if not supabase:
+            return {"error": "Supabase not connected"}
+        
+        # Total calls
+        total_calls = supabase.table("calls").select("id", count="exact").execute()
+        
+        # Hot leads count
+        hot_leads = supabase.table("calls").select("id", count="exact").eq("is_hot_lead", True).execute()
+        
+        # Average lead score
+        all_scores = supabase.table("calls").select("lead_score").execute()
+        avg_score = sum(row["lead_score"] for row in all_scores.data) / len(all_scores.data) if all_scores.data else 0
+        
+        # Recent calls
+        recent = supabase.table("calls").select("*").order("created_at", desc=True).limit(10).execute()
+        
+        return {
+            "total_calls": total_calls.count or 0,
+            "hot_leads_count": hot_leads.count or 0,
+            "average_lead_score": round(avg_score, 2),
+            "recent_calls": recent.data,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Analytics error: {e}")
+        return {"error": str(e)}
+
+@app.get("/hot-leads")
+async def get_hot_leads():
+    """Get all hot leads"""
+    try:
+        if not supabase:
+            return {"error": "Supabase not connected"}
+        
+        hot_leads = supabase.table("calls")\
+            .select("*")\
+            .eq("is_hot_lead", True)\
+            .order("created_at", desc=True)\
+            .execute()
+        
+        return {
+            "count": len(hot_leads.data),
+            "hot_leads": hot_leads.data
+        }
+        
+    except Exception as e:
+        print(f"❌ Hot leads error: {e}")
+        return {"error": str(e)}
+
+@app.get("/calls")
+async def get_all_calls(limit: int = 50, offset: int = 0):
+    """Get all calls with pagination"""
+    try:
+        if not supabase:
+            return {"error": "Supabase not connected"}
+        
+        result = supabase.table("calls").select("*")\
+            .order("created_at", desc=True)\
+            .range(offset, offset + limit - 1)\
+            .execute()
+        
+        return {
+            "count": len(result.data),
+            "calls": result.data
+        }
+        
+    except Exception as e:
+        print(f"❌ Calls error: {e}")
+        return {"error": str(e)}
+
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+import os
+
+@app.get("/dashboard")
+async def serve_dashboard():
+    """Serve the analytics dashboard"""
+    dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
+    return FileResponse(dashboard_path)
+
+if __name__ == "__main__":
+    import uvicorn
+    print("🚀 Starting Realflow AI Agent Backend...")
+    print(f"📊 Supabase URL: {SUPABASE_URL}")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

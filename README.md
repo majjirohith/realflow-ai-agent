@@ -44,6 +44,8 @@ How to Test
 3. Have a conversation about commercial real estate
 4. Watch data appear in real-time on the dashboard
 
+In the vapi_assistant_info file, all the configuration details, assistant ID, tools implemented, tools configurations are all available in the file.
+
 Project Structure
 ```
 realflow-ai-agent/

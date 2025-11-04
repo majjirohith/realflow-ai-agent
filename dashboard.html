@@ -289,92 +289,146 @@
         // For production: https://your-railway-url.up.railway.app
         const API_BASE_URL = 'https://web-production-4dd75.up.railway.app';
 
-        async function loadDashboard() {
-            const loadingEl = document.getElementById('loading');
-            const dashboardEl = document.getElementById('dashboard');
-            const errorEl = document.getElementById('error');
+function parseLeadScore(value) {
+    // Return integer 0..100 for various inputs:
+    // - numbers (75)
+    // - "75"
+    // - "75/100"
+    // - "Score: 75/100 | Notes..."
+    // - "Score: 75"
+    if (value === null || value === undefined) return 0;
 
-            try {
-                loadingEl.style.display = 'block';
-                dashboardEl.style.display = 'none';
-                errorEl.style.display = 'none';
+    // If it's already a number
+    if (typeof value === 'number' && !isNaN(value)) {
+        return Math.max(0, Math.min(100, Math.round(value)));
+    }
 
-                // Fetch analytics data
-                const response = await fetch(`${API_BASE_URL}/analytics`);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
+    // If it's boolean, convert
+    if (typeof value === 'boolean') return value ? 100 : 0;
 
-                // Update stats
-                document.getElementById('totalCalls').textContent = data.total_calls || 0;
-                document.getElementById('hotLeads').textContent = data.hot_leads_count || 0;
-                document.getElementById('avgScore').textContent = data.average_lead_score || 0;
+    // If it's an object that contains a numeric field
+    if (typeof value === 'object') {
+        // try common fields
+        if (value.lead_score) return parseLeadScore(value.lead_score);
+        if (value.score) return parseLeadScore(value.score);
+        return 0;
+    }
 
-                // Calculate conversion rate
-                const conversionRate = data.total_calls > 0 
-                    ? ((data.hot_leads_count / data.total_calls) * 100).toFixed(1)
-                    : 0;
-                document.getElementById('conversionRate').textContent = `${conversionRate}%`;
+    // Now treat as string
+    const s = String(value);
 
-                // Populate calls table
-                const tableBody = document.getElementById('callsTableBody');
-                tableBody.innerHTML = '';
+    // First try patterns like "75/100"
+    let m = s.match(/(\d{1,3})\s*(?=\/\s*100)/i);
+    if (m && m[1]) return Math.max(0, Math.min(100, parseInt(m[1], 10)));
 
-                if (data.recent_calls && data.recent_calls.length > 0) {
-                    data.recent_calls.forEach(call => {
-                        const row = document.createElement('tr');
-                        
-                        const leadScore = call.lead_score || 0;
-                        let badge = 'cold';
-                        if (leadScore >= 75) badge = 'hot';
-                        else if (leadScore >= 50) badge = 'warm';
+    // Next try "Score: 75" or "Score: 75/100" etc.
+    m = s.match(/Score[:\s]*?(\d{1,3})/i);
+    if (m && m[1]) return Math.max(0, Math.min(100, parseInt(m[1], 10)));
 
-                        row.innerHTML = `
-                            <td><strong>${call.caller_name || 'N/A'}</strong></td>
-                            <td>${call.caller_phone || 'N/A'}</td>
-                            <td>${call.asset_type || 'N/A'}</td>
-                            <td>${call.location || 'N/A'}</td>
-                            <td>${call.deal_size || 'N/A'}</td>
-                            <td>
-                                <strong>${leadScore}/100</strong>
-                                <div class="score-bar">
-                                    <div class="score-fill" style="width: ${leadScore}%"></div>
-                                </div>
-                            </td>
-                            <td><span class="badge ${badge}">${call.is_hot_lead ? '🔥 HOT' : leadScore >= 50 ? 'Warm' : 'Cold'}</span></td>
-                        `;
-                        tableBody.appendChild(row);
-                    });
-                } else {
-                    tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 30px; color: #999;">No calls yet. Start making calls to see data here!</td></tr>';
-                }
+    // Next try any first number (fallback)
+    m = s.match(/(\d{1,3})/);
+    if (m && m[1]) return Math.max(0, Math.min(100, parseInt(m[1], 10)));
 
-                // Show dashboard
-                loadingEl.style.display = 'none';
-                dashboardEl.style.display = 'block';
+    // No number found
+    return 0;
+}
 
-            } catch (error) {
-                console.error('Error loading dashboard:', error);
-                loadingEl.style.display = 'none';
-                errorEl.style.display = 'block';
-                errorEl.innerHTML = `
-                    <div class="error">
-                        <strong>⚠️ Error Loading Dashboard</strong><br>
-                        ${error.message}<br><br>
-                        <small>Make sure your backend is running at ${API_BASE_URL}</small>
-                    </div>
+async function loadDashboard() {
+    const loadingEl = document.getElementById('loading');
+    const dashboardEl = document.getElementById('dashboard');
+    const errorEl = document.getElementById('error');
+
+    try {
+        loadingEl.style.display = 'block';
+        dashboardEl.style.display = 'none';
+        errorEl.style.display = 'none';
+
+        const response = await fetch(`${API_BASE_URL}/analytics`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const data = await response.json();
+
+        // Safely parse numeric totals
+        const totalCalls = Number(data.total_calls) || 0;
+        const hotLeadsCount = Number(data.hot_leads_count) || 0;
+
+        // Update stats (use numeric conversions)
+        document.getElementById('totalCalls').textContent = totalCalls;
+        document.getElementById('hotLeads').textContent = hotLeadsCount;
+
+        // average_lead_score could be string or number; parse robustly
+        let avgScore = 0;
+        if (data.average_lead_score !== undefined && data.average_lead_score !== null) {
+            avgScore = parseLeadScore(data.average_lead_score);
+        } else if (Array.isArray(data.recent_calls) && data.recent_calls.length) {
+            // fallback: compute average from recent_calls
+            const scores = data.recent_calls.map(c => parseLeadScore(c.lead_score || c.score || c.notes || c.additional_notes));
+            const total = scores.reduce((s, x) => s + x, 0);
+            avgScore = scores.length ? Math.round(total / scores.length) : 0;
+        }
+        document.getElementById('avgScore').textContent = avgScore;
+
+        // Conversion rate
+        const conversionRate = totalCalls > 0 ? ((hotLeadsCount / totalCalls) * 100).toFixed(1) : 0;
+        document.getElementById('conversionRate').textContent = `${conversionRate}%`;
+
+        // Populate calls table
+        const tableBody = document.getElementById('callsTableBody');
+        tableBody.innerHTML = '';
+
+        if (data.recent_calls && data.recent_calls.length > 0) {
+            data.recent_calls.forEach(call => {
+                const row = document.createElement('tr');
+
+                // Determine leadScore robustly
+                // API might provide: call.lead_score (number), call.lead_score (string), "Score: 75/100", or nothing
+                const possible = call.lead_score ?? call.score ?? call.notes ?? call.additional_notes ?? call.note ?? '';
+                const leadScore = parseLeadScore(possible);
+
+                // Determine badge
+                let badgeClass = 'cold';
+                if (leadScore >= 75) badgeClass = 'hot';
+                else if (leadScore >= 50) badgeClass = 'warm';
+
+                // Determine status text
+                const isHot = Boolean(call.is_hot_lead) || leadScore >= 75;
+                const statusText = isHot ? '🔥 HOT' : (leadScore >= 50 ? 'Warm' : 'Cold');
+
+                row.innerHTML = `
+                    <td><strong>${call.caller_name || 'N/A'}</strong></td>
+                    <td>${call.caller_phone || call.phone || 'N/A'}</td>
+                    <td>${call.asset_type || call.property_type || 'N/A'}</td>
+                    <td>${call.location || 'N/A'}</td>
+                    <td>${call.deal_size || call.budget_range || 'N/A'}</td>
+                    <td>
+                        <strong>${leadScore}/100</strong>
+                        <div class="score-bar">
+                            <div class="score-fill" style="width: ${leadScore}%"></div>
+                        </div>
+                    </td>
+                    <td><span class="badge ${badgeClass}">${statusText}</span></td>
                 `;
-            }
+                tableBody.appendChild(row);
+            });
+        } else {
+            tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 30px; color: #999;">No calls yet. Start making calls to see data here!</td></tr>';
         }
 
-        // Auto-refresh every 30 seconds
-        setInterval(loadDashboard, 30000);
-
-        // Load dashboard on page load
-        loadDashboard();
+        loadingEl.style.display = 'none';
+        dashboardEl.style.display = 'block';
+    } catch (error) {
+        console.error('Error loading dashboard:', error);
+        loadingEl.style.display = 'none';
+        errorEl.style.display = 'block';
+        errorEl.innerHTML = `
+            <div class="error">
+                <strong>⚠️ Error Loading Dashboard</strong><br>
+                ${error.message}<br><br>
+                <small>Make sure your backend is running at ${API_BASE_URL}</small>
+            </div>
+        `;
+    }
+}
     </script>
 </body>
 </html>

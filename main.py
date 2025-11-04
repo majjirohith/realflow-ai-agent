@@ -213,13 +213,21 @@ async def vapi_webhook(request: Request):
     """Main Vapi webhook endpoint"""
     try:
         payload = await request.json()
-        print("\n📞 Received webhook call")
+        
+        # ✅ COMPREHENSIVE LOGGING
+        print("\n" + "="*80)
+        print("📞 WEBHOOK RECEIVED")
+        print("="*80)
+        print(f"📦 FULL PAYLOAD:\n{json.dumps(payload, indent=2)}")
+        print("="*80)
 
         # Extract core message info
         message = payload.get("message", {})
         call = payload.get("call", {}) or {}
         call_id = call.get("id", "unknown")
-        message_type = message.get("type", "unknown")
+        
+        # Check both locations for message type
+        message_type = message.get("type") or payload.get("type", "unknown")
 
         print(f"📋 Message type: {message_type}")
         print(f"🆔 Call ID: {call_id}")
@@ -230,6 +238,7 @@ async def vapi_webhook(request: Request):
         if message_type == "tool-calls":
             tool_calls = message.get("toolCalls", [])
             print(f"🔧 Processing {len(tool_calls)} tool calls")
+            print(f"🔍 Tool calls raw data: {json.dumps(tool_calls, indent=2)}")
 
             for tool_call in tool_calls:
                 tool_call_id = tool_call.get("id")
@@ -238,27 +247,44 @@ async def vapi_webhook(request: Request):
 
                 # Parse arguments (string or dict)
                 arguments = function_data.get("arguments", {})
+                
+                print(f"\n--- Processing Tool Call ---")
+                print(f"Tool Call ID: {tool_call_id}")
+                print(f"Function Name: {function_name}")
+                print(f"Arguments Type: {type(arguments)}")
+                print(f"Arguments Raw: {arguments}")
+                
                 if isinstance(arguments, str):
                     try:
                         arguments = json.loads(arguments)
-                    except Exception:
-                        print("⚠️ Could not parse arguments as JSON")
+                        print(f"✅ Parsed arguments from string to dict")
+                    except Exception as e:
+                        print(f"⚠️ Could not parse arguments as JSON: {e}")
+                        arguments = {}
 
-                print(f"🔧 Function: {function_name}")
+                print(f"Final Arguments: {json.dumps(arguments, indent=2)}")
 
                 # ✅ Route to appropriate handler
                 handler_result = None
                 try:
                     if function_name == "collect_caller_information":
+                        print(f"\n🎯 Calling handle_collect_caller_info")
                         handler_result = await handle_collect_caller_info(call_id, arguments, payload)
                     elif function_name == "schedule_callback":
+                        print(f"\n🎯 Calling handle_callback_request")
                         handler_result = await handle_callback_request(call_id, arguments)
                     elif function_name == "request_property_information":
+                        print(f"\n🎯 Calling handle_property_request")
                         handler_result = await handle_property_request(call_id, arguments)
                     elif function_name == "flag_hot_lead":
+                        print(f"\n🎯 Calling handle_hot_lead_flag")
                         handler_result = await handle_hot_lead_flag(call_id, arguments)
                     else:
                         print(f"⚠️ Unrecognized function: {function_name}")
+                        handler_result = {"error": f"Unknown function: {function_name}"}
+                        
+                    print(f"✅ Handler result: {handler_result}")
+                    
                 except Exception as e:
                     print(f"❌ Error in {function_name}: {e}")
                     import traceback
@@ -266,24 +292,39 @@ async def vapi_webhook(request: Request):
                     handler_result = {"error": str(e)}
 
                 # ✅ Format tool call result for Vapi
-                results.append({
+                result_obj = {
                     "toolCallId": tool_call_id,
                     "result": json.dumps(handler_result) if isinstance(handler_result, dict) else str(handler_result)
-                })
+                }
+                results.append(result_obj)
+                print(f"📤 Added result to response: {result_obj}")
 
         # ✅ Handle end-of-call-report
         elif message_type == "end-of-call-report":
-            print("📊 Call ended – no tool calls to process")
+            print("📊 Call ended – end-of-call-report received")
+            print(f"📦 End-of-call payload: {json.dumps(message, indent=2)}")
+            
+            # Log any analysis or transcript data
+            analysis = message.get("analysis", {})
+            if analysis:
+                print(f"📊 Analysis data: {json.dumps(analysis, indent=2)}")
+
+        else:
+            print(f"⚠️ Unknown message type: {message_type}")
+            print(f"📦 Full message: {json.dumps(message, indent=2)}")
 
         # ✅ Send response to Vapi
         if results:
-            print("✅ Sending tool results to Vapi")
-            return {"results": results}
+            response = {"results": results}
+            print(f"\n✅ Sending response to Vapi:")
+            print(json.dumps(response, indent=2))
+            return response
         else:
+            print(f"\n✅ No results to send back")
             return {"status": "success", "message": "Processed successfully"}
 
     except Exception as e:
-        print(f"❌ Webhook error: {e}")
+        print(f"❌ WEBHOOK ERROR: {e}")
         import traceback
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
@@ -292,29 +333,38 @@ async def vapi_webhook(request: Request):
 # ✅ Helper: Process "collect_caller_info" tool calls from Vapi
 # ----------------------------------------------------------------------
 async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dict):
-    """
-    Process caller info, call logging, and hot lead handling from the Vapi webhook.
-    This function is called internally from the main vapi_webhook().
-    """
+    """Process caller info, call logging, and hot lead handling"""
     try:
         parameters = arguments or {}
-        print("\n📞 Handling collect_caller_info:")
-        print("Call ID:", call_id)
-        print("Parameters:", parameters)
-
+        
+        print("\n" + "="*60)
+        print("📞 HANDLING COLLECT_CALLER_INFO")
+        print("="*60)
+        print(f"Call ID: {call_id}")
+        print(f"Parameters received: {json.dumps(parameters, indent=2)}")
+        
         # ✅ CALCULATE lead score and hot lead status
         lead_score = calculate_lead_score(parameters)
         is_hot, hot_reason = is_hot_lead(lead_score, parameters.get("urgency", ""), parameters.get("deal_size", ""))
         
-        # ✅ ADD calculated values to parameters for Google Sheets
+        print(f"\n📊 CALCULATED VALUES:")
+        print(f"  Lead Score: {lead_score}/100")
+        print(f"  Is Hot: {is_hot}")
+        print(f"  Reason: {hot_reason}")
+        
+        # ✅ ADD calculated values to parameters
         parameters["is_hot_lead"] = is_hot
         parameters["lead_score"] = lead_score
         parameters["hot_lead_reason"] = hot_reason
         
-        print(f"📊 Calculated: Score={lead_score}, Hot={is_hot}, Reason={hot_reason}")
+        print(f"\n📝 ATTEMPTING TO LOG TO GOOGLE SHEETS...")
+        # ✅ LOG TO GOOGLE SHEETS FIRST
+        sheets_success = await log_to_google_sheets(parameters)
         
-        # ✅ LOG TO GOOGLE SHEETS FIRST (Primary requirement)
-        await log_to_google_sheets(parameters)
+        if sheets_success:
+            print("✅ Google Sheets logging successful")
+        else:
+            print("❌ Google Sheets logging failed")
 
         # ✅ THEN log to Supabase (Bonus feature)
         if supabase:
@@ -427,11 +477,15 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
 
         return {"success": True, "message": "Caller info processed successfully"}
 
+    print("="*60)
+        return {"success": True, "message": "Caller info processed successfully"}
+
     except Exception as e:
-        print(f"❌ Error in handle_collect_caller_info: {e}")
+        print(f"❌ ERROR IN handle_collect_caller_info: {e}")
         import traceback
         traceback.print_exc()
         return {"success": False, "message": str(e)}
+
 
 async def handle_callback_request(call_id: str, parameters: Dict):
     """Handle callback scheduling"""

@@ -332,6 +332,7 @@ async def vapi_webhook(request: Request):
 # ----------------------------------------------------------------------
 # ✅ Helper: Process "collect_caller_info" tool calls from Vapi
 # ----------------------------------------------------------------------
+
 async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dict):
     """Process caller info, call logging, and hot lead handling"""
     try:
@@ -378,9 +379,9 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
                 "location": parameters.get("location"),
                 "deal_size": parameters.get("deal_size"),
                 "urgency": parameters.get("urgency"),
-                "lead_score": lead_score,  # ✅ Use calculated value
-                "hot_lead_reason": hot_reason,  # ✅ Use calculated reason
-                "is_hot_lead": is_hot,  # ✅ Use calculated value
+                "lead_score": lead_score,
+                "hot_lead_reason": hot_reason,
+                "is_hot_lead": is_hot,
                 "inquiry_summary": parameters.get("inquiry_summary"),
                 "additional_notes": parameters.get("additional_notes"),
                 "created_at": datetime.now().isoformat(),
@@ -475,9 +476,7 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
                         "hot_lead_reason": hot_reason,
                     }).eq("id", inserted_call_id).execute()
 
-        return {"success": True, "message": "Caller info processed successfully"}
-
-    print("="*60)
+        print("="*60)
         return {"success": True, "message": "Caller info processed successfully"}
 
     except Exception as e:

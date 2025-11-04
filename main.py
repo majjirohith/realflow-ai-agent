@@ -401,8 +401,33 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
         print("Call ID:", call_id)
         print("Parameters:", parameters)
 
-        is_hot = parameters.get("is_hot_lead", False)
-        hot_reason = parameters.get("urgency_reason", "Not specified")
+            # compute numeric lead score and hot-lead status so both Sheets and Supabase get the same values
+        try:
+            numeric_score = int(round(calculate_lead_score(parameters)))
+        except Exception:
+            numeric_score = 0
+        # clamp 0..100 just in case
+        numeric_score = max(0, min(100, numeric_score))
+
+        # compute hot-lead using helper (this respects both computed score and urgency/deal size)
+        computed_is_hot, computed_reason = is_hot_lead(numeric_score, parameters.get("urgency", ""), parameters.get("deal_size", ""))
+
+        # If the webhook already provided is_hot_lead, prefer it; otherwise use computed value
+        provided_is_hot = parameters.get("is_hot_lead", None)
+        if provided_is_hot is None:
+            is_hot = bool(computed_is_hot)
+        else:
+            is_hot = bool(provided_is_hot)
+
+        # If hot_reason not present, use computed reason
+        hot_reason = parameters.get("urgency_reason") or parameters.get("hot_lead_reason") or computed_reason or "Not specified"
+
+        # Add these into parameters so log_to_google_sheets can also see the numeric value if you want
+        parameters["lead_score"] = numeric_score
+        parameters["is_hot_lead"] = is_hot
+        parameters["hot_lead_reason"] = hot_reason
+
+        print(f"Calculated lead_score: {numeric_score}, is_hot: {is_hot}, reason: {hot_reason}")
 
         # ✅ LOG TO GOOGLE SHEETS FIRST (Primary requirement)
         await log_to_google_sheets(parameters)
@@ -422,7 +447,10 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
                 "is_hot_lead": is_hot,
                 "inquiry_summary": parameters.get("inquiry_summary"),
                 "additional_notes": parameters.get("additional_notes"),
+                "lead_score": parameters.get("lead_score", 0),     # <-- numeric score persisted
+                "hot_lead_reason": parameters.get("hot_lead_reason"),
                 "created_at": datetime.now().isoformat(),
+                "raw_vapi_data": payload                                # optional but useful
             }
 
             phone = (parameters.get("caller_phone") or "").strip()

@@ -577,6 +577,22 @@ async def handle_hot_lead_flag(call_id: str, parameters: Dict):
     """Handle manual hot lead flagging"""
     try:
         print(f"\n🔥 Manual hot lead flag for call: {call_id}")
+        print(f"Parameters: {json.dumps(parameters, indent=2)}")
+        
+        # ✅ ALSO LOG TO GOOGLE SHEETS (since we have caller data)
+        # Construct a parameters dict that matches what collect_caller_information expects
+        sheets_params = {
+            "caller_name": parameters.get("caller_name"),
+            "caller_phone": parameters.get("caller_phone"),
+            "inquiry_summary": parameters.get("urgency_reason", "Hot lead flagged"),
+            "urgency": "immediate",  # If flagged as hot, it's urgent
+            "deal_size": parameters.get("deal_value"),
+            "is_hot_lead": True,
+            "additional_notes": f"Flagged as hot: {parameters.get('urgency_reason')}"
+        }
+        
+        print("📝 Logging hot lead data to Google Sheets...")
+        await log_to_google_sheets(sheets_params)
         
         if supabase:
             # Get the UUID for this call_id

@@ -281,13 +281,11 @@
         </div>
     </div>
 
-    <button class="refresh-btn" onclick="loadDashboard()">🔄 Refresh Data</button>
-
-    <script>
-        // IMPORTANT: Update this URL to your backend URL
-        // For local testing: http://localhost:8000
-        // For production: https://your-railway-url.up.railway.app
-        const API_BASE_URL = 'https://web-production-4dd75.up.railway.app';
+    <button class="refresh-btn" onclick="loadDashboard()">🔄 Refresh Data</button>    
+        
+<script>
+/* keep API_BASE_URL as-is */
+    const API_BASE_URL = 'https://web-production-4dd75.up.railway.app';
 
 function parseLeadScore(value) {
     // Return integer 0..100 for various inputs:
@@ -429,6 +427,7 @@ async function loadDashboard() {
         `;
     }
 }
-    </script>
+</script>
+
 </body>
 </html>

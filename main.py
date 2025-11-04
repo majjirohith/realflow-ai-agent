@@ -307,9 +307,7 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
 
         is_hot = parameters.get("is_hot_lead", False)
         hot_reason = parameters.get("urgency_reason", "Not specified")
-
-        lead_score = calculate_lead_score(parameters)
-        is_hot, hot_reason = is_hot_lead(lead_score, parameters.get("urgency", ""), parameters.get("deal_size", ""))
+        
         # ✅ LOG TO GOOGLE SHEETS FIRST (Primary requirement)
         await log_to_google_sheets(parameters)
 

@@ -158,6 +158,65 @@ def is_hot_lead(score: int, urgency: str, deal_size: str) -> tuple:
     
     return is_hot, reason
 
+# Helper: normalize incoming argument keys to canonical names
+# -------------------------
+def normalize_parameters(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Accepts a dict 'arguments' coming from Vapi and maps common aliases
+    to the canonical keys used by the rest of the app.
+    """
+    if not arguments:
+        return {}
+
+    # Flatten if arguments wrapped as JSON string
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except Exception:
+            try:
+                arguments = json.loads(arguments.replace("'", '"'))
+            except Exception:
+                arguments = {}
+
+    canonical = {}
+    aliases = {
+        "caller_name": ["caller_name", "name", "caller", "callerFullName"],
+        "caller_phone": ["caller_phone", "phone", "from", "caller_phone_number", "callerPhone"],
+        "caller_email": ["caller_email", "email", "callerEmail"],
+        "caller_role": ["caller_role", "role", "user_role"],
+        "asset_type": ["asset_type", "asset", "property_type", "assetType"],
+        "location": ["location", "city", "market"],
+        "deal_size": ["deal_size", "value", "budget_range", "dealValue"],
+        "urgency": ["urgency", "timeline"],
+        "inquiry_summary": ["inquiry_summary", "inquiry", "summary", "notes"],
+        "additional_notes": ["additional_notes", "notes", "extra_notes"],
+        "is_hot_lead": ["is_hot_lead", "is_hot", "hot", "hot_lead"],
+        "conversation_topics": ["conversation_topics", "topics"],
+        "questions_asked": ["questions_asked", "questions"]
+    }
+
+    # prefer explicit canonical key if present
+    for key in aliases:
+        for a in aliases[key]:
+            if a in arguments and arguments.get(a) not in (None, ""):
+                canonical[key] = arguments.get(a)
+                break
+
+    # Also copy any other keys intact (so nothing lost)
+    for k, v in arguments.items():
+        if k not in sum(aliases.values(), []):  # not an alias we've normalized
+            canonical[k] = v
+
+    # ensure booleans are booleans
+    if "is_hot_lead" in canonical:
+        val = canonical.get("is_hot_lead")
+        if isinstance(val, str):
+            canonical["is_hot_lead"] = val.lower() in ("1", "true", "yes")
+        else:
+            canonical["is_hot_lead"] = bool(val)
+
+    return canonical
+
 async def log_to_google_sheets(parameters: Dict):
     """Log call data to Google Sheets"""
     try:
@@ -210,53 +269,92 @@ async def root():
 
 @app.post("/webhook/vapi")
 async def vapi_webhook(request: Request):
-    """Main Vapi webhook endpoint"""
+    """Main Vapi webhook endpoint - tolerant to Vapi payload variants."""
     try:
         payload = await request.json()
+        # Debug: print raw payload for troubleshooting
+        print("\n🔴 RAW WEBHOOK PAYLOAD:")
+        try:
+            print(json.dumps(payload, indent=2))
+        except Exception:
+            print(str(payload))
+
         print("\n📞 Received webhook call")
 
-        # Extract core message info
-        message = payload.get("message", {})
-        call = payload.get("call", {}) or {}
-        call_id = call.get("id", "unknown")
-        message_type = message.get("type", "unknown")
+        # Extract message/type in a tolerant way
+        # Vapi sometimes uses top-level "type" or message.type
+        message = payload.get("message") or payload.get("data") or {}
+        # If message is not a dict (some variants), set as {}
+        if not isinstance(message, dict):
+            message = {}
+
+        message_type = payload.get("type") or message.get("type") or payload.get("message_type") or payload.get("messageType") or "unknown"
+        # Extract call info tolerant
+        call = payload.get("call") or payload.get("callData") or payload.get("session") or {}
+        call_id = None
+        if isinstance(call, dict):
+            call_id = call.get("id") or call.get("call_id") or call.get("uuid") or call.get("session_id")
+        call_id = call_id or payload.get("call_id") or payload.get("callId") or "unknown"
 
         print(f"📋 Message type: {message_type}")
         print(f"🆔 Call ID: {call_id}")
 
-        results = []  # Responses to send back to Vapi
+        results = []
 
-        # ✅ Handle tool-calls (new Vapi format)
-        if message_type == "tool-calls":
-            tool_calls = message.get("toolCalls", [])
+        # Accept multiple shapes of tool-calls: toolCalls, tool_calls, toolcalls, payload.message.toolCalls etc.
+        if str(message_type).lower() in ("tool-calls", "toolcalls", "tool_calls", "tool-calls-v1"):
+            # find tool calls array
+            tool_calls = (
+                message.get("toolCalls")
+                or message.get("tool_calls")
+                or message.get("toolcalls")
+                or payload.get("toolCalls")
+                or payload.get("tool_calls")
+                or []
+            )
+
+            # If tools are nested as objects with different naming, attempt to normalize
             print(f"🔧 Processing {len(tool_calls)} tool calls")
-
             for tool_call in tool_calls:
-                tool_call_id = tool_call.get("id")
-                function_data = tool_call.get("function", {})
-                function_name = function_data.get("name", "unknown")
+                # possible shapes:
+                # { "id": "...", "function": {"name": "...", "arguments": {...}} }
+                # { "name": "...", "arguments": {...} }
+                tool_call_id = tool_call.get("id") or tool_call.get("toolCallId") or None
 
-                # Parse arguments (string or dict)
-                arguments = function_data.get("arguments", {})
+                function_data = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else tool_call
+                function_name = function_data.get("name") or function_data.get("function") or function_data.get("tool") or function_data.get("toolName") or "unknown"
+
+                # arguments may be under 'arguments' or directly under function_data
+                arguments = function_data.get("arguments") if isinstance(function_data.get("arguments"), (dict, str)) else None
+                if not arguments:
+                    # maybe the tool_call itself contains parameters
+                    arguments = tool_call.get("arguments") or tool_call.get("params") or function_data.get("params") or {}
+
+                # try parse string arguments
                 if isinstance(arguments, str):
                     try:
                         arguments = json.loads(arguments)
                     except Exception:
-                        print("⚠️ Could not parse arguments as JSON")
+                        try:
+                            arguments = json.loads(arguments.replace("'", '"'))
+                        except Exception:
+                            arguments = {}
+
+                # Normalize argument keys to canonical names used in the app
+                normalized_params = normalize_parameters(arguments or {})
 
                 print(f"🔧 Function: {function_name}")
-
-                # ✅ Route to appropriate handler
+                # Dispatch to handlers
                 handler_result = None
                 try:
-                    if function_name == "collect_caller_information":
-                        handler_result = await handle_collect_caller_info(call_id, arguments, payload)
-                    elif function_name == "schedule_callback":
-                        handler_result = await handle_callback_request(call_id, arguments)
-                    elif function_name == "request_property_information":
-                        handler_result = await handle_property_request(call_id, arguments)
-                    elif function_name == "flag_hot_lead":
-                        handler_result = await handle_hot_lead_flag(call_id, arguments)
+                    if function_name == "collect_caller_information" or function_name == "collectCallerInformation":
+                        handler_result = await handle_collect_caller_info(call_id, normalized_params, payload)
+                    elif function_name == "schedule_callback" or function_name == "scheduleCallback":
+                        handler_result = await handle_callback_request(call_id, normalized_params)
+                    elif function_name == "request_property_information" or function_name == "requestPropertyInformation":
+                        handler_result = await handle_property_request(call_id, normalized_params)
+                    elif function_name == "flag_hot_lead" or function_name == "flagHotLead":
+                        handler_result = await handle_hot_lead_flag(call_id, normalized_params)
                     else:
                         print(f"⚠️ Unrecognized function: {function_name}")
                 except Exception as e:
@@ -265,17 +363,18 @@ async def vapi_webhook(request: Request):
                     traceback.print_exc()
                     handler_result = {"error": str(e)}
 
-                # ✅ Format tool call result for Vapi
                 results.append({
                     "toolCallId": tool_call_id,
                     "result": json.dumps(handler_result) if isinstance(handler_result, dict) else str(handler_result)
                 })
 
-        # ✅ Handle end-of-call-report
-        elif message_type == "end-of-call-report":
-            print("📊 Call ended – no tool calls to process")
+        elif str(message_type).lower() in ("end-of-call-report", "end_of_call_report"):
+            print("📊 Call ended – end-of-call report received")
 
-        # ✅ Send response to Vapi
+        else:
+            print("⚠️ Message type not recognized for tool-calls. Skipping tool processing.")
+
+        # respond to Vapi (empty results returns success)
         if results:
             print("✅ Sending tool results to Vapi")
             return {"results": results}

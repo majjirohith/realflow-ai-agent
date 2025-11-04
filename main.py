@@ -302,9 +302,14 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
         print("Call ID:", call_id)
         print("Parameters:", parameters)
 
+        lead_score = calculate_lead_score(parameters)
+        is_hot, hot_reason = is_hot_lead(lead_score, parameters.get("urgency", ""), parameters.get("deal_size", ""))
+
         is_hot = parameters.get("is_hot_lead", False)
         hot_reason = parameters.get("urgency_reason", "Not specified")
 
+        lead_score = calculate_lead_score(parameters)
+        is_hot, hot_reason = is_hot_lead(lead_score, parameters.get("urgency", ""), parameters.get("deal_size", ""))
         # ✅ LOG TO GOOGLE SHEETS FIRST (Primary requirement)
         await log_to_google_sheets(parameters)
 
@@ -320,6 +325,8 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
                 "location": parameters.get("location"),
                 "deal_size": parameters.get("deal_size"),
                 "urgency": parameters.get("urgency"),
+                "lead_score": lead_score,
+                "hot_lead_reason": hot_reason,  
                 "is_hot_lead": is_hot,
                 "inquiry_summary": parameters.get("inquiry_summary"),
                 "additional_notes": parameters.get("additional_notes"),

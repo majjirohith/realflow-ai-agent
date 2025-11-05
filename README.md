@@ -27,8 +27,11 @@ A complete inbound commercial real estate AI agent system featuring natural voic
 -  **Scalable Architecture** - FastAPI backend handles hundreds of concurrent calls
 -  **Comprehensive Logging** - Full request/response tracking for debugging
 
-## System Architecture
+---
 
+##  System Architecture
+
+```
 ┌─────────────────┐
 │   Caller Dials  │
 │  Vapi Number    │
@@ -63,7 +66,7 @@ A complete inbound commercial real estate AI agent system featuring natural voic
                        │  Analytics   │
                        │  Dashboard   │
                        └──────────────┘
-
+```
 
 ## Technology Stack
 
@@ -168,7 +171,7 @@ Server runs on `http://localhost:8000`
 3. **Deploy** - Railway auto-detects Python and uses `main.py`
 4. **Get deployment URL** - Railway provides HTTPS endpoint automatically
 
-## 🧪 Testing
+##  Testing
 
 ### Option 1: Vapi Web Demo
 1. Open Vapi demo link (provided above)
@@ -197,7 +200,7 @@ curl -X POST https://your-railway-url.up.railway.app/webhook/vapi \
 
 ---
 
-## 📊 Database Schema (Supabase)
+##  Database Schema (Supabase)
 
 ### Tables
 
@@ -354,9 +357,3 @@ Potential improvements for full production:
 ##  Developer
 
 **Rohith Majji**
-
-- **GitHub Issues:** [YOUR_REPO_ISSUES]
-
----
-
-**Built with ❤️ for Realflow.co** | Submission Date: [INSERT DATE]

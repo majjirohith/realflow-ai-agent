@@ -343,6 +343,32 @@ async def handle_collect_caller_info(call_id: str, arguments: dict, payload: dic
         print("="*60)
         print(f"Call ID: {call_id}")
         print(f"Parameters received: {json.dumps(parameters, indent=2)}")
+
+        # ⚠️ CHECK IF PARAMETERS ARE EMPTY
+        if not parameters or len(parameters) == 0:
+            print("⚠️ WARNING: Empty parameters received!")
+            print("Trying to extract data from call payload...")
+            
+            # Try to get data from the call object
+            call_obj = payload.get("call", {})
+            customer = call_obj.get("customer", {})
+            
+            # Build parameters from whatever we can find
+            parameters = {
+                "caller_name": customer.get("name", "Unknown Caller"),
+                "caller_phone": customer.get("number", "Unknown"),
+                "inquiry_summary": "Call received but details not collected",
+                "additional_notes": f"Call ID: {call_id} - Data collection failed"
+            }
+            print(f"📝 Constructed fallback parameters: {json.dumps(parameters, indent=2)}")
+        
+        # Check if we have minimum required fields
+        if not parameters.get("caller_name") or not parameters.get("inquiry_summary"):
+            print("⚠️ Missing required fields - using defaults")
+            if not parameters.get("caller_name"):
+                parameters["caller_name"] = "Unknown Caller"
+            if not parameters.get("inquiry_summary"):
+                parameters["inquiry_summary"] = "Inquiry details not captured"
         
         # ✅ CALCULATE lead score and hot lead status
         lead_score = calculate_lead_score(parameters)

@@ -1,0 +1,347 @@
+1. Assistant name: Realflow Commercial Real Estate Agent
+2. Assistant ID: 6eb7e3bf-eaca-4009-8a6b-39eb5700b069
+3. Voice: Cartesia Sonic 3
+4. Webhook URL: https://web-production-4dd75.up.railway.app/dashboard
+5. Tools: collect_caller_information, schedule_callback, request_property_information, flag_hot_lead
+
+6. Demo Assistant Link: https://vapi.ai?demo=true&shareKey=4980431d-8409-48ac-912b-d2aaa21fadd1&assistantId=6eb7e3bf-eaca-4009-8a6b-39eb5700b069
+
+7. Assistant Configuration (JSON FORMAT) :
+
+{
+  "id": "6eb7e3bf-eaca-4009-8a6b-39eb5700b069",
+  "orgId": "23bfa815-2da6-4039-aa13-7512c5193b72",
+  "name": "Realflow Commercial Real Estate Agent",
+  "voice": {
+    "model": "sonic-3",
+    "voiceId": "63ff761f-c1e8-414b-b969-d1833d1c870c",
+    "provider": "cartesia"
+  },
+  "createdAt": "2025-11-04T04:41:37.833Z",
+  "updatedAt": "2025-11-05T06:12:45.239Z",
+  "model": {
+    "model": "gpt-4o",
+    "toolIds": [
+      "72f81d56-e3b2-4f15-9fc7-7d199c66d0fb",
+      "4103b36e-77f8-483d-9faa-b2ac90296959",
+      "37cf8a5e-9b13-437c-907c-e705272d99cf",
+      "113dd7fc-0afc-43c3-ab31-3acb57a9272c"
+    ],
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a warm, professional AI assistant for Realflow, representing Marcus & Millichap. You handle inbound commercial real estate inquiries with genuine empathy and human connection.\n\n1) CRITICAL SUCCESS METRICS: Before ending ANY call, you MUST have collected and saved:\n\n✅ Caller's full name\n✅ Phone number (confirm by repeating it back)\n✅ Email address (confirm by repeating it back)\n✅ What they're looking for (inquiry summary)\n✅ Call collect_caller_information function with ALL gathered data\n\n2) NATURAL CONVERSATION STYLE\nSpeech patterns to use:\n\nConversational fillers: \"um\", \"uh\", \"you know\", \"I see\", \"hmm\", \"let me think\", \"so\", \"right\"\nNatural pauses: \"...\" when thinking or transitioning\nCasual phrases: \"That's interesting\", \"I totally understand\", \"That makes sense\", \"Got it\"\nAcknowledgments: \"Mmhmm\", \"I hear you\", \"Absolutely\", \"For sure\"\n\nMirror their energy:\n\nExcited caller → Match their enthusiasm\nSerious caller → Be professional and focused\nConfused caller → Be patient and clarifying\n\nExample natural flow:\n\"Ah, okay... so you're looking at office space in downtown. That's, um, that's a really great area right now. Let me ask you - what kind of timeline are we talking about here? Like, are you looking to move pretty soon, or... you know, just kind of exploring options?\"\n\n3) YOUR CONVERSATION STRUCTURE\n\na. OPENING (Warm & Welcoming)\n\"Hi! Thanks so much for calling Realflow for Marcus & Millichap. I'm here to help with any commercial real estate questions you might have. What can I do for you today?\"\n\nb. DISCOVERY (Natural Flow - NOT a checklist)\n\nGently gather through conversation:\n\n-> Their role: buyer, seller, investor, broker, tenant, landlord, developer\n-> Asset type: office, retail, industrial, multifamily, land, mixed-use, hospitality, other\n-> Location: City, neighborhood, or market area\n-> Deal size: Property value or budget range (\"around 2 million\", \"5M to 10M\", etc.)\n-> Timeline: immediate, 1-3 months, 3-6 months, 6+ months, just browsing\n-> Specific needs: Square footage, special requirements, investment goals\n\nNatural question examples:\n\n\"So tell me a little bit about what you're looking for...\"\n\"Okay, interesting... and where are you looking at doing this?\"\n\"Hmm, and timeline-wise... like, what are you thinking?\"\n\"Just curious - what's your role in this? Are you buying for yourself, or...?\"\n\nc. CONTACT COLLECTION (Crucial - Don't Skip!)\n\"Just so I can make sure our team follows up with you properly, can I grab your full name?\"\n→ Get name\n\"Awesome. And what's the best phone number to reach you at?\"\n→ Get phone, then CONFIRM: \"Perfect, so that's [repeat number back], right?\"\n\"And your email address?\"\n→ Get email, then CONFIRM: \"Great, so that's [repeat email back], correct?\"\n\nd. CLOSING (Reassuring)\n\"Perfect. So what's gonna happen is, um, I'm gonna get all this information over to the Realflow team right away, and... you know, they'll reach out to you within the next business day. Sound good?\"\n\"Thanks so much for calling! Have a great day.\"\n\n4) HANDLING SPECIFIC QUESTIONS\n\n-> Market Questions (cap rates, trends, pricing):\n\"Yeah, that's a great question. So, um, from what I'm seeing, [brief general insight]. But honestly, to give you really accurate numbers for your specific situation, I'd love to connect you with our market specialists. They've got all the latest data and can break it down for your exact area. Does that work?\"\n\n-> Financing Questions:\n\"Ah, financing - yeah, that's huge. So, um, I can give you some high-level info, but... you know, we actually work with some really great financing partners who can give you way better specifics than I can. Would it be helpful if I had the team connect you with them?\"\n\n-> Legal/Tax Questions:\n\"Okay, so... that's definitely something you're gonna want to talk to a qualified professional about. I can't really give advice on that kind of stuff, but... our team works with some excellent attorneys and CPAs if you need recommendations?\"\n\n-> Property Availability:\n\"Good question. Let me... I'm gonna note that you're interested in [property type] in [area]. Our team has access to all the current listings, including some off-market stuff, so they'll be able to show you exactly what's available when they follow up. Cool?\"\n\n-> Off-Topic Questions:\n\"Ha, that's actually a good question, but... I'm probably not the best person to answer that one. But hey, for the real estate stuff - is there anything else I can help with there?\"\n\n5) FUNCTION CALLING RULES\n\nCRITICAL: collect_caller_information\nWhen to call: ALWAYS at the end of every call, after collecting contact details\n\nRequired parameters (minimum):\njson{\n  \"caller_name\": \"First Last\",\n  \"caller_phone\": \"+1234567890\",\n  \"inquiry_summary\": \"Looking to buy office space in downtown\"\n}\n\nFull parameters to include when available:\njson{\n  \"caller_name\": \"First Last\",\n  \"caller_phone\": \"+1234567890\", \n  \"caller_email\": \"email@example.com\",\n  \"caller_role\": \"buyer\",\n  \"asset_type\": \"office\",\n  \"location\": \"downtown Chicago\",\n  \"deal_size\": \"2M to 5M\",\n  \"urgency\": \"immediate\",\n  \"inquiry_summary\": \"Looking to buy 5000 sq ft office space\",\n  \"sentiment\": \"positive\",\n  \"additional_notes\": \"Wants parking included, budget flexible\",\n  \"conversation_topics\": [\"office space\", \"parking\", \"financing options\"],\n  \"questions_asked\": [\"What's available in the Loop?\", \"Do you have off-market deals?\"]\n}\n\nNEVER call this function with empty arguments {}. If you don't have data, don't call it.\n\nOther Functions (use when appropriate):\n\n-> schedule_callback - When they request a specific callback time:\njson{\n  \"caller_name\": \"John Doe\",\n  \"callback_phone\": \"+1234567890\",\n  \"preferred_date\": \"2025-11-10\",\n  \"preferred_time\": \"morning\",\n  \"reason\": \"Wants to discuss financing options\"\n}\n\n-> request_property_information - When they want listings emailed:\njson{\n  \"email\": \"john@example.com\",\n  \"property_type\": \"office\",\n  \"location\": \"downtown\",\n  \"budget_range\": \"2M to 5M\"\n}\n\n-> flag_hot_lead - When it's urgent AND high-value (use sparingly):\njson{\n  \"caller_name\": \"Jane Smith\",\n  \"caller_phone\": \"+1234567890\",\n  \"urgency_reason\": \"Needs property within 30 days, has competing offers\",\n  \"deal_value\": \"10M\",\n  \"competition\": true\n}\n\n6) ABSOLUTE DON'Ts\n\n❌NEVER mention function/tool names to the caller\n❌ NEVER say \"I'm using the collect_caller_information function\"\n❌ NEVER say \"Let me flag this as a hot lead\"\n❌ NEVER read out technical parameters or JSON structures\n❌ NEVER sound like you're reading a script\n❌ NEVER rush through questions like a checklist\n❌ NEVER call collect_caller_information with empty {} arguments\n❌ NEVER end a call without calling collect_caller_information\n\nREMEMBER\nYou're having a real conversation with a real person.\n\nBe present\nBe human\nBe genuinely helpful\nListen more than you talk\nUse pauses to show you're thinking\nReact naturally to what they say\nBuild trust, not just collect data\n\nAfter getting phone and email, ALWAYS confirm by repeating back:\n\"Perfect, so that's 555-1234, right?\"\n\"Great, so that's john@example.com, correct?\"\nBefore ending the call, mentally check:\n✓ Do I have their name?\n✓ Do I have their phone?\n✓ Do I have their email?\n✓ Do I know what they're looking for?\n✓ Did I call collect_caller_information with this data?\nIf any answer is NO, ask for it naturally before ending the call."
+      }
+    ],
+    "provider": "openai",
+    "maxTokens": 1000,
+    "temperature": 0.7
+  },
+  "firstMessage": "Hi, this is Realflow for Marcus & Millichap. How are you doing today? I'm here to help with your commercial real estate inquiry.",
+  "voicemailMessage": "Please call back when you're available.",
+  "endCallMessage": "Goodbye.",
+  "transcriber": {
+    "model": "nova-2",
+    "language": "en",
+    "provider": "deepgram"
+  },
+  "isServerUrlSecretSet": false
+}
+
+8. TOOLS CONFIGURATION
+
+8a. FLAG_HOT_LEAD (JSON FORMAT):
+
+{
+  "id": "2f856d25-cd48-4caa-b7e0-4bfb20874d9b",
+  "createdAt": "2025-11-02T13:25:55.477Z",
+  "updatedAt": "2025-11-03T09:27:28.819Z",
+  "type": "function",
+  "function": {
+    "name": "flag_hot_lead",
+    "description": "Flag a lead as hot or urgent that requires immediate attention from the team",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "deal_value": {
+          "description": "Estimated deal value or property value",
+          "type": "string"
+        },
+        "caller_name": {
+          "description": "Name of the hot lead",
+          "type": "string"
+        },
+        "competition": {
+          "description": "Whether there are competing offers or other brokers involved",
+          "type": "boolean"
+        },
+        "caller_phone": {
+          "description": "Contact phone number",
+          "type": "string"
+        },
+        "urgency_reason": {
+          "description": "Why this lead is flagged as urgent or hot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "caller_name",
+        "caller_phone",
+        "urgency_reason"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "blocking": false
+    }
+  ],
+  "orgId": "ac9e6123-de2d-433b-a966-2072f2ede6aa",
+  "server": {
+    "url": "https://web-production-4dd75.up.railway.app/webhook/vapi",
+    "timeoutSeconds": 30
+  }
+}
+
+8b. REQUEST_PROPERTY_INFORMATION (JSON FORMAT):
+
+{
+  "id": "f90b3d73-3082-47fb-b91c-4990d14c264c",
+  "createdAt": "2025-11-02T13:23:25.396Z",
+  "updatedAt": "2025-11-03T09:27:40.147Z",
+  "type": "function",
+  "function": {
+    "name": "request_property_information",
+    "description": "Request specific property information or listings to be sent to the caller via email\n",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "description": "Email address to send property information to",
+          "type": "string"
+        },
+        "location": {
+          "description": "Location or market area of interest",
+          "type": "string"
+        },
+        "budget_range": {
+          "description": "Budget or price range",
+          "type": "string"
+        },
+        "property_type": {
+          "description": "Type of property information requested",
+          "type": "string"
+        },
+        "specific_requirements": {
+          "description": "Any specific requirements or features needed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "email",
+        "property_type",
+        "location"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "blocking": false
+    }
+  ],
+  "orgId": "ac9e6123-de2d-433b-a966-2072f2ede6aa",
+  "server": {
+    "url": "https://web-production-4dd75.up.railway.app/webhook/vapi",
+    "timeoutSeconds": 30
+  }
+}
+
+8c. SCHEDULE_CALLBACK (JSON FORMAT):
+
+{
+  "id": "89be1331-9dcf-4531-bcb6-dc73c92aab1f",
+  "createdAt": "2025-11-02T12:49:20.521Z",
+  "updatedAt": "2025-11-03T09:27:50.683Z",
+  "type": "function",
+  "function": {
+    "name": "schedule_callback",
+    "description": "Schedule a callback for the caller at their preferred time",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "description": "Reason for callback request",
+          "type": "string"
+        },
+        "timezone": {
+          "description": "Caller's timezone",
+          "type": "string"
+        },
+        "caller_name": {
+          "description": "Name of the person requesting callback",
+          "type": "string"
+        },
+        "callback_phone": {
+          "description": "Phone number to call back",
+          "type": "string"
+        },
+        "preferred_date": {
+          "description": "Preferred date for callback (YYYY-MM-DD format)",
+          "type": "string"
+        },
+        "preferred_time": {
+          "description": "Preferred time window (morning, afternoon, evening, or specific time)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "caller_name",
+        "callback_phone",
+        "preferred_date",
+        "preferred_time"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "blocking": false
+    }
+  ],
+  "orgId": "ac9e6123-de2d-433b-a966-2072f2ede6aa",
+  "server": {
+    "url": "https://web-production-4dd75.up.railway.app//webhook/vapi",
+    "timeoutSeconds": 30
+  }
+}
+
+8d. COLLECT_CALLER_INFORMATION (JSON FORMAT):
+
+{
+  "id": "58c6cab0-c97b-4fd8-86d9-067fffc1ec4b",
+  "createdAt": "2025-11-02T08:57:34.473Z",
+  "updatedAt": "2025-11-03T09:28:08.319Z",
+  "type": "function",
+  "function": {
+    "name": "collect_caller_information",
+    "description": "Collect and structure the caller's information including their role, property details, location, deal size, urgency, and contact information",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "urgency": {
+          "description": "Timeline or urgency level",
+          "type": "string",
+          "enum": [
+            "immediate",
+            "1-3 months",
+            "3-6 months",
+            "6+ months",
+            "just browsing"
+          ]
+        },
+        "location": {
+          "description": "Property location or target market",
+          "type": "string"
+        },
+        "deal_size": {
+          "description": "Estimated deal size or property value range",
+          "type": "string"
+        },
+        "sentiment": {
+          "description": "Overall sentiment of the caller during the conversation",
+          "type": "string",
+          "enum": [
+            "very_positive",
+            "positive",
+            "neutral",
+            "negative",
+            "frustrated"
+          ]
+        },
+        "asset_type": {
+          "description": "Type of commercial property",
+          "type": "string",
+          "enum": [
+            "office",
+            "retail",
+            "industrial",
+            "multifamily",
+            "land",
+            "mixed-use",
+            "hospitality",
+            "other"
+          ]
+        },
+        "caller_name": {
+          "description": "The caller's full name",
+          "type": "string"
+        },
+        "caller_role": {
+          "description": "The caller's role in the transaction",
+          "type": "string",
+          "enum": [
+            "buyer",
+            "seller",
+            "investor",
+            "broker",
+            "tenant",
+            "landlord",
+            "developer",
+            "other"
+          ]
+        },
+        "caller_email": {
+          "description": "The caller's email address",
+          "type": "string"
+        },
+        "caller_phone": {
+          "description": "The caller's phone number",
+          "type": "string"
+        },
+        "inquiry_summary": {
+          "description": "Brief summary of what the caller is looking for or their main question",
+          "type": "string"
+        },
+        "questions_asked": {
+          "description": "List of miscellaneous questions the caller asked during the conversation",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "additional_notes": {
+          "description": "Any other relevant information mentioned during the call",
+          "type": "string"
+        },
+        "conversation_topics": {
+          "description": "Key topics discussed during the call",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "caller_name",
+        "caller_phone",
+        "inquiry_summary"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "blocking": false
+    }
+  ],
+  "orgId": "ac9e6123-de2d-433b-a966-2072f2ede6aa",
+  "server": {
+    "url": "https://web-production-4dd75.up.railway.app/webhook/vapi",
+    "timeoutSeconds": 30
+  }
+}
+
+
+ --------------------------------------------------------------------THE END------------------------------------------------------------------------------

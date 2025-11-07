@@ -106,8 +106,8 @@ Proprietary **0-100 point system** based on:
 | **Analytics Dashboard** | [https://web-production-4dd75.up.railway.app/dashboard](https://web-production-4dd75.up.railway.app/dashboard) | Real-time metrics and call data |
 | **API Health Check** | [https://web-production-4dd75.up.railway.app/](https://web-production-4dd75.up.railway.app/) | Service status |
 | **Analytics Endpoint** | [https://web-production-4dd75.up.railway.app/analytics](https://web-production-4dd75.up.railway.app/analytics) | JSON API for programmatic access |
-| **Vapi Demo** | [INSERT YOUR LINK] | Test the AI voice agent |
-| **Google Sheet** | [INSERT YOUR LINK] | Live call logs |
+| **Vapi Demo** | [ --- | Test the AI voice agent |
+| **Google Sheet** | --- | Live call logs |
 
 ---
 
